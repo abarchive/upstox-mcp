@@ -1,48 +1,19 @@
 require("dotenv").config();
 
+const express = require("express");
 const axios = require("axios");
 
-const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
+const app = express();
 
-const {
-  StdioServerTransport,
-} = require("@modelcontextprotocol/sdk/server/stdio.js");
+app.use(express.json());
 
-const {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} = require("@modelcontextprotocol/sdk/types.js");
-
-const server = new Server(
-  {
-    name: "upstox",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "get_nifty_spot",
-        description: "Get live NIFTY spot price",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-    ],
-  };
+app.get("/", (req, res) => {
+  res.send("Upstox MCP Running");
 });
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+app.get("/spot", async (req, res) => {
 
-  if (request.params.name === "get_nifty_spot") {
+  try {
 
     const response = await axios.get(
       "https://api.upstox.com/v2/market-quote/quotes",
@@ -56,25 +27,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     );
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(response.data, null, 2),
-        },
-      ],
-    };
+    res.json(response.data);
+
+  } catch (err) {
+
+    res.status(500).json(
+      err.response?.data || { error: err.message }
+    );
+
   }
 
-  throw new Error("Unknown tool");
 });
 
-async function main() {
+app.get("/option-chain", async (req, res) => {
 
-  const transport = new StdioServerTransport();
+  try {
 
-  await server.connect(transport);
+    const response = await axios.get(
+      "https://api.upstox.com/v2/option/chain",
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.UPSTOX_ACCESS_TOKEN}`,
+        },
+        params: {
+          instrument_key: "NSE_INDEX|Nifty 50",
+          expiry_date: "2026-06-25",
+        },
+      }
+    );
 
-}
+    res.json(response.data);
 
-main();
+  } catch (err) {
+
+    res.status(500).json(
+      err.response?.data || { error: err.message }
+    );
+
+  }
+
+});
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
