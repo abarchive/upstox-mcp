@@ -4,10 +4,12 @@ const express = require("express");
 const axios = require("axios");
 const WebSocket = require("ws");
 const bs = require("black-scholes");
+const cors = require("cors");
 
 const app = express();
 
 app.use(express.json());
+app.use(cors());
 
 /* =========================
    ROOT
