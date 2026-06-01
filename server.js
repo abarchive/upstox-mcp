@@ -2,18 +2,23 @@ require("dotenv").config();
 
 const express = require("express");
 const axios = require("axios");
-const WebSocket = require("ws");
-const bs = require("black-scholes");
 const cors = require("cors");
+const bs = require("black-scholes");
 
 const app = express();
 
 app.use(express.json());
 app.use(cors());
 
-/* =========================
-   ROOT
-========================= */
+const PORT = process.env.PORT || 10000;
+
+
+
+
+
+// ===============================
+// ROOT
+// ===============================
 
 app.get("/", (req, res) => {
 
@@ -21,9 +26,13 @@ app.get("/", (req, res) => {
 
 });
 
-/* =========================
-   NIFTY SPOT
-========================= */
+
+
+
+
+// ===============================
+// LIVE NIFTY SPOT
+// ===============================
 
 app.get("/spot", async (req, res) => {
 
@@ -45,131 +54,86 @@ app.get("/spot", async (req, res) => {
 
   } catch (err) {
 
-    res.status(500).json(
-      err.response?.data || { error: err.message }
-    );
+    res.status(500).json({
+      status: "error",
+      message: err.message,
+      data: err.response?.data || null,
+    });
 
   }
 
 });
 
-/* =========================
-   OPTION CHAIN
-========================= */
 
-app.get("/option-chain", async (req, res) => {
+
+
+
+// ===============================
+// GET AVAILABLE EXPIRIES
+// ===============================
+
+app.get("/expiries", async (req, res) => {
 
   try {
 
     const response = await axios.get(
-      "https://api.upstox.com/v2/option/chain",
+      "https://api.upstox.com/v2/option/contract",
       {
         headers: {
           Authorization: `Bearer ${process.env.UPSTOX_ACCESS_TOKEN}`,
         },
         params: {
           instrument_key: "NSE_INDEX|Nifty 50",
-          expiry_date: "2026-06-25",
         },
       }
     );
 
-    res.json(response.data);
+    const contracts = response.data.data || [];
 
-  } catch (err) {
+    const expiries = [
+      ...new Set(
+        contracts.map((x) => x.expiry)
+      ),
+    ];
 
-    res.status(500).json(
-      err.response?.data || { error: err.message }
-    );
-
-  }
-
-});
-
-/* =========================
-   GREEKS ENGINE
-========================= */
-
-app.get("/greeks", async (req, res) => {
-
-  try {
-
-    const S = Number(req.query.spot || 23382.6);
-    const K = Number(req.query.strike || 23400);
-
-    const T = Number(req.query.time || 7 / 365);
-
-    const r = Number(req.query.rate || 0.06);
-
-    const sigma = Number(req.query.iv || 0.18);
-
-    const callPrice = bs.blackScholes(
-      S,
-      K,
-      T,
-      r,
-      sigma,
-      "call"
-    );
-
-    const putPrice = bs.blackScholes(
-      S,
-      K,
-      T,
-      r,
-      sigma,
-      "put"
-    );
+    expiries.sort();
 
     res.json({
-      underlying: S,
-      strike: K,
-      iv: sigma,
-      timeToExpiry: T,
-      interestRate: r,
-      callPrice,
-      putPrice
+      status: "success",
+      expiries,
     });
 
   } catch (err) {
 
     res.status(500).json({
-      error: err.message
+      status: "error",
+      message: err.message,
+      data: err.response?.data || null,
     });
 
   }
 
 });
 
-/* =========================
-   LIVE WEBSOCKET
-========================= */
 
-const server = app.listen(
-  process.env.PORT || 3000,
-  () => {
 
-    console.log(
-      `Server running on port ${process.env.PORT || 3000}`
-    );
 
-  }
-);
 
-const wss = new WebSocket.Server({
-  server
-});
+// ===============================
+// OPTION CHAIN
+// ===============================
 
-wss.on("connection", (ws) => {
+app.get("/option-chain", async (req, res) => {
 
-  console.log("WebSocket Client Connected");
+  try {
 
-  const interval = setInterval(async () => {
+    let expiry = req.query.expiry;
 
-    try {
+    // AUTO FETCH NEAREST EXPIRY
+    if (!expiry) {
 
-      const response = await axios.get(
-        "https://api.upstox.com/v2/market-quote/quotes",
+      const contractResponse = await axios.get(
+        "https://api.upstox.com/v2/option/contract",
         {
           headers: {
             Authorization: `Bearer ${process.env.UPSTOX_ACCESS_TOKEN}`,
@@ -180,26 +144,121 @@ wss.on("connection", (ws) => {
         }
       );
 
-      ws.send(JSON.stringify(response.data));
+      const contracts = contractResponse.data.data || [];
 
-    } catch (err) {
+      const expiries = [
+        ...new Set(
+          contracts.map((x) => x.expiry)
+        ),
+      ];
 
-      ws.send(
-        JSON.stringify({
-          error: err.message
-        })
-      );
+      expiries.sort();
+
+      expiry = expiries[0];
 
     }
 
-  }, 2000);
+    const response = await axios.get(
+      "https://api.upstox.com/v2/option/chain",
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.UPSTOX_ACCESS_TOKEN}`,
+        },
+        params: {
+          instrument_key: "NSE_INDEX|Nifty 50",
+          expiry_date: expiry,
+        },
+      }
+    );
 
-  ws.on("close", () => {
+    res.json({
+      selected_expiry: expiry,
+      ...response.data,
+    });
 
-    clearInterval(interval);
+  } catch (err) {
 
-    console.log("WebSocket Client Disconnected");
+    res.status(500).json({
+      status: "error",
+      message: err.message,
+      data: err.response?.data || null,
+    });
 
-  });
+  }
+
+});
+
+
+
+
+
+// ===============================
+// GREEKS ENGINE
+// ===============================
+
+app.get("/greeks", async (req, res) => {
+
+  try {
+
+    const spot = 23382.6;
+
+    const strike = 23400;
+
+    const iv = 0.18;
+
+    const timeToExpiry = 7 / 365;
+
+    const interestRate = 0.06;
+
+    const callPrice = bs.blackScholes(
+      spot,
+      strike,
+      timeToExpiry,
+      iv,
+      interestRate,
+      "call"
+    );
+
+    const putPrice = bs.blackScholes(
+      spot,
+      strike,
+      timeToExpiry,
+      iv,
+      interestRate,
+      "put"
+    );
+
+    res.json({
+      underlying: spot,
+      strike,
+      iv,
+      timeToExpiry,
+      interestRate,
+      callPrice,
+      putPrice,
+    });
+
+  } catch (err) {
+
+    res.status(500).json({
+      status: "error",
+      message: err.message,
+    });
+
+  }
+
+});
+
+
+
+
+
+// ===============================
+// START SERVER
+// ===============================
+
+app.listen(PORT, () => {
+
+  console.log(`Server running on port ${PORT}`);
 
 });
