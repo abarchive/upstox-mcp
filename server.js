@@ -19,30 +19,40 @@ const headers = {
   "Content-Type": "application/json",
 };
 
+
+
+// ======================================================
+// HOME
+// ======================================================
+
 app.get("/", (req, res) => {
+
   res.send("Dhan Advanced Trading Backend Running");
+
 });
 
 
-// =========================
-// LIVE SPOT PRICE
-// =========================
+
+// ======================================================
+// LIVE NIFTY SPOT
+// ======================================================
 
 app.get("/spot", async (req, res) => {
+
   try {
 
-    const response = await axios.get(
+    const response = await axios.post(
       "https://api.dhan.co/v2/marketfeed/ltp",
       {
-        headers,
-        data: {
-          instruments: [
-            {
-              exchangeSegment: "IDX_I",
-              securityId: "13"
-            }
-          ]
-        }
+        NSE: [
+          {
+            tradingSymbol: "NIFTY",
+            securityId: "13"
+          }
+        ]
+      },
+      {
+        headers
       }
     );
 
@@ -57,18 +67,21 @@ app.get("/spot", async (req, res) => {
     });
 
   }
+
 });
 
 
-// =========================
+
+// ======================================================
 // OPTION CHAIN
-// =========================
+// ======================================================
 
 app.get("/option-chain", async (req, res) => {
 
   try {
 
-    const expiry = req.query.expiry || "2026-06-04";
+    const expiry =
+      req.query.expiry || "2026-06-05";
 
     const response = await axios.post(
       "https://api.dhan.co/v2/optionchain",
@@ -97,29 +110,54 @@ app.get("/option-chain", async (req, res) => {
 });
 
 
-// =========================
+
+// ======================================================
 // GREEKS ENGINE
-// =========================
+// ======================================================
 
 app.get("/greeks", async (req, res) => {
 
   try {
 
     const underlying = Number(req.query.underlying || 23400);
+
     const strike = Number(req.query.strike || 23400);
+
     const iv = Number(req.query.iv || 18) / 100;
+
     const timeToExpiry = Number(req.query.t || 7) / 365;
 
-    const intrinsicCall = Math.max(0, underlying - strike);
-    const intrinsicPut = Math.max(0, strike - underlying);
+    const intrinsicCall = Math.max(
+      0,
+      underlying - strike
+    );
 
-    const extrinsic = underlying * iv * Math.sqrt(timeToExpiry) * 0.4;
+    const intrinsicPut = Math.max(
+      0,
+      strike - underlying
+    );
 
-    const callPrice = intrinsicCall + extrinsic;
-    const putPrice = intrinsicPut + extrinsic;
+    const extrinsic =
+      underlying *
+      iv *
+      Math.sqrt(timeToExpiry) *
+      0.4;
 
-    const deltaCall = underlying > strike ? 0.65 : 0.45;
-    const deltaPut = underlying < strike ? -0.65 : -0.45;
+    const callPrice =
+      intrinsicCall + extrinsic;
+
+    const putPrice =
+      intrinsicPut + extrinsic;
+
+    const deltaCall =
+      underlying > strike
+        ? 0.65
+        : 0.45;
+
+    const deltaPut =
+      underlying < strike
+        ? -0.65
+        : -0.45;
 
     res.json({
       underlying,
@@ -147,9 +185,10 @@ app.get("/greeks", async (req, res) => {
 });
 
 
-// =========================
+
+// ======================================================
 // WEBSOCKET STATUS
-// =========================
+// ======================================================
 
 app.get("/ws-status", async (req, res) => {
 
@@ -162,8 +201,15 @@ app.get("/ws-status", async (req, res) => {
 });
 
 
-// =========================
+
+// ======================================================
+// SERVER START
+// ======================================================
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+
+  console.log(
+    `Server running on port ${PORT}`
+  );
+
 });
