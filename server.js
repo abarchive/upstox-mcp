@@ -10,6 +10,12 @@ app.use(cors());
 
 const PORT = process.env.PORT || 10000;
 
+
+
+// ======================================================
+// DHAN HEADERS
+// ======================================================
+
 const headers = {
   "access-token": process.env.DHAN_ACCESS_TOKEN,
   "client-id": process.env.DHAN_CLIENT_ID,
@@ -24,7 +30,7 @@ const headers = {
 
 app.get("/", (req, res) => {
 
-  res.send("AI Trading Backend Running");
+  res.send("AI Institutional Trading Backend Running");
 
 });
 
@@ -39,7 +45,8 @@ app.get("/ws-status", (req, res) => {
   res.json({
     websocket: "ready",
     provider: "DhanHQ",
-    realtime: true
+    realtime: true,
+    serverTime: new Date().toISOString()
   });
 
 });
@@ -85,16 +92,21 @@ app.get("/greeks", async (req, res) => {
       intrinsicPut + extrinsic;
 
     res.json({
+
       underlying,
       strike,
       iv,
+
       callPrice,
       putPrice,
+
       deltaCall: 0.52,
       deltaPut: -0.48,
+
       gamma: 0.012,
       theta: -8.4,
       vega: 11.2
+
     });
 
   } catch (err) {
@@ -111,133 +123,97 @@ app.get("/greeks", async (req, res) => {
 
 
 // ======================================================
-// GET AVAILABLE EXPIRIES
+// MARKET DATA
+// SINGLE MASTER AI ENDPOINT
 // ======================================================
 
-app.get("/expiries", async (req, res) => {
+app.get("/market-data", async (req, res) => {
 
   try {
 
-    const response = await axios.post(
-      "https://api.dhan.co/v2/optionchain",
-      {
-        UnderlyingScrip: 13,
-        UnderlyingSeg: "IDX_I",
-        Expiry: "2026-06-26"
-      },
-      {
-        headers
+    // ==================================================
+    // STEP 1 - TRY MULTIPLE EXPIRIES
+    // ==================================================
+
+    const expiriesToTry = [
+
+      "2026-06-09",
+      "2026-06-16",
+      "2026-06-23",
+      "2026-06-30",
+      "2026-07-07",
+      "2026-07-28"
+
+    ];
+
+    let finalData = null;
+    let selectedExpiry = null;
+
+    for (const expiry of expiriesToTry) {
+
+      try {
+
+        const response = await axios.post(
+          "https://api.dhan.co/v2/optionchain",
+          {
+            UnderlyingScrip: 13,
+            UnderlyingSeg: "IDX_I",
+            Expiry: expiry
+          },
+          {
+            headers
+          }
+        );
+
+        if (
+          response.data &&
+          response.data.data &&
+          response.data.data.oc
+        ) {
+
+          finalData = response.data.data;
+          selectedExpiry = expiry;
+
+          break;
+
+        }
+
+      } catch (e) {
+
       }
-    );
 
-    const data = response.data;
+    }
 
-    const currentExpiry =
-      data?.data?.expiryDate ||
-      "2026-06-26";
+    // ==================================================
+    // NO DATA
+    // ==================================================
 
-    res.json({
-      currentExpiry
-    });
+    if (!finalData) {
 
-  } catch (err) {
+      return res.json({
+        status: "error",
+        message: "No valid expiry found"
+      });
 
-    res.json({
-      status: "error",
-      message: err.message,
-      data: err.response?.data || null
-    });
+    }
 
-  }
+    // ==================================================
+    // EXTRACT DATA
+    // ==================================================
 
-});
-
-
-
-// ======================================================
-// RAW OPTION CHAIN
-// ======================================================
-
-app.get("/option-chain", async (req, res) => {
-
-  try {
-
-    const expiry =
-      req.query.expiry || "2026-06-26";
-
-    const response = await axios.post(
-      "https://api.dhan.co/v2/optionchain",
-      {
-        UnderlyingScrip: 13,
-        UnderlyingSeg: "IDX_I",
-        Expiry: expiry
-      },
-      {
-        headers
-      }
-    );
-
-    res.json(response.data);
-
-  } catch (err) {
-
-    res.json({
-      status: "error",
-      message: err.message,
-      data: err.response?.data || null
-    });
-
-  }
-
-});
-
-
-
-// ======================================================
-// AI ANALYZE ENDPOINT
-// ======================================================
-
-app.get("/analyze", async (req, res) => {
-
-  try {
-
-    // ==========================================
-    // STEP 1 - FETCH OPTION CHAIN
-    // ==========================================
-
-    const expiry =
-      req.query.expiry || "2026-06-26";
-
-    const response = await axios.post(
-      "https://api.dhan.co/v2/optionchain",
-      {
-        UnderlyingScrip: 13,
-        UnderlyingSeg: "IDX_I",
-        Expiry: expiry
-      },
-      {
-        headers
-      }
-    );
-
-    const data = response.data.data;
-
-    const oc = data.oc;
+    const oc = finalData.oc;
 
     const spot =
-      Number(data.last_price);
-
-    const nearestExpiry =
-      data.expiryDate || expiry;
-
-    // ==========================================
-    // STEP 2 - FIND ATM
-    // ==========================================
+      Number(finalData.last_price || 0);
 
     const strikes =
       Object.keys(oc)
         .map(Number)
         .sort((a, b) => a - b);
+
+    // ==================================================
+    // FIND ATM
+    // ==================================================
 
     let atmStrike = strikes[0];
 
@@ -258,22 +234,22 @@ app.get("/analyze", async (req, res) => {
 
     }
 
-    // ==========================================
-    // STEP 3 - ATM DATA
-    // ==========================================
+    // ==================================================
+    // ATM DATA
+    // ==================================================
 
     const atmData =
       oc[atmStrike];
 
     const ce =
-      atmData.ce || {};
+      atmData?.ce || {};
 
     const pe =
-      atmData.pe || {};
+      atmData?.pe || {};
 
-    // ==========================================
-    // STEP 4 - OI CALCULATION
-    // ==========================================
+    // ==================================================
+    // OI + PCR
+    // ==================================================
 
     let totalCallOI = 0;
     let totalPutOI = 0;
@@ -292,11 +268,13 @@ app.get("/analyze", async (req, res) => {
     }
 
     const pcr =
-      totalPutOI / totalCallOI;
+      totalCallOI > 0
+        ? totalPutOI / totalCallOI
+        : 0;
 
-    // ==========================================
-    // STEP 5 - MARKET BIAS
-    // ==========================================
+    // ==================================================
+    // MARKET BIAS
+    // ==================================================
 
     let marketBias = "sideways";
 
@@ -310,9 +288,9 @@ app.get("/analyze", async (req, res) => {
 
     }
 
-    // ==========================================
-    // STEP 6 - LIQUIDITY CHECK
-    // ==========================================
+    // ==================================================
+    // LIQUIDITY
+    // ==================================================
 
     const ceBid =
       ce.top_bid_price || 0;
@@ -330,15 +308,23 @@ app.get("/analyze", async (req, res) => {
         ? "medium"
         : "low";
 
-    // ==========================================
-    // FINAL OUTPUT
-    // ==========================================
+    // ==================================================
+    // FINAL RESPONSE
+    // ==================================================
 
     res.json({
 
-      spot,
+      provider: "DhanHQ",
 
-      nearestExpiry,
+      realtime: true,
+
+      timestamp:
+        new Date().toISOString(),
+
+      nearestExpiry:
+        selectedExpiry,
+
+      spot,
 
       atmStrike,
 
@@ -348,65 +334,89 @@ app.get("/analyze", async (req, res) => {
         pcr.toFixed(2)
       ),
 
-      totalCallOI,
-
-      totalPutOI,
-
-      ceLtp:
-        ce.last_price || 0,
-
-      peLtp:
-        pe.last_price || 0,
-
-      ceIV:
-        ce.implied_volatility || 0,
-
-      peIV:
-        pe.implied_volatility || 0,
-
-      ceOI:
-        ce.oi || 0,
-
-      peOI:
-        pe.oi || 0,
-
-      ceVolume:
-        ce.volume || 0,
-
-      peVolume:
-        pe.volume || 0,
+      liquidity,
 
       spread,
 
-      liquidity,
+      atm: {
 
-      greeks: {
+        ce: {
 
-        ceDelta:
-          ce.greeks?.delta || 0,
+          ltp:
+            ce.last_price || 0,
 
-        peDelta:
-          pe.greeks?.delta || 0,
+          bid:
+            ce.top_bid_price || 0,
 
-        gamma:
-          ce.greeks?.gamma || 0,
+          ask:
+            ce.top_ask_price || 0,
 
-        theta:
-          ce.greeks?.theta || 0,
+          oi:
+            ce.oi || 0,
 
-        vega:
-          ce.greeks?.vega || 0
+          volume:
+            ce.volume || 0,
 
-      }
+          iv:
+            ce.implied_volatility || 0,
+
+          greeks:
+            ce.greeks || {}
+
+        },
+
+        pe: {
+
+          ltp:
+            pe.last_price || 0,
+
+          bid:
+            pe.top_bid_price || 0,
+
+          ask:
+            pe.top_ask_price || 0,
+
+          oi:
+            pe.oi || 0,
+
+          volume:
+            pe.volume || 0,
+
+          iv:
+            pe.implied_volatility || 0,
+
+          greeks:
+            pe.greeks || {}
+
+        }
+
+      },
+
+      totals: {
+
+        totalCallOI,
+
+        totalPutOI
+
+      },
+
+      strikes,
+
+      fullOptionChain: oc
 
     });
 
   } catch (err) {
 
     res.json({
+
       status: "error",
+
       message: err.message,
-      data: err.response?.data || null
+
+      data:
+        err.response?.data || null
+
     });
 
   }
