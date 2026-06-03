@@ -41,11 +41,12 @@ app.get("/spot", async (req, res) => {
     const response = await axios.post(
       "https://api.dhan.co/v2/marketfeed/ltp",
       {
-        IDX_I: [
-          {
+        IDX_I: {
+          "13": {
+            exchangeSegment: "IDX_I",
             securityId: "13"
           }
-        ]
+        }
       },
       {
         headers
@@ -65,7 +66,6 @@ app.get("/spot", async (req, res) => {
   }
 
 });
-
 
 
 // =====================================================
