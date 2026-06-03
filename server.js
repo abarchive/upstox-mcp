@@ -10,32 +10,29 @@ app.use(cors());
 
 const PORT = process.env.PORT || 10000;
 
-const DHAN_CLIENT_ID = process.env.DHAN_CLIENT_ID;
-const DHAN_ACCESS_TOKEN = process.env.DHAN_ACCESS_TOKEN;
-
 const headers = {
-  "access-token": DHAN_ACCESS_TOKEN,
-  "client-id": DHAN_CLIENT_ID,
+  "access-token": process.env.DHAN_ACCESS_TOKEN,
+  "client-id": process.env.DHAN_CLIENT_ID,
   "Content-Type": "application/json",
 };
 
 
 
-// ======================================================
+// =====================================================
 // HOME
-// ======================================================
+// =====================================================
 
 app.get("/", (req, res) => {
 
-  res.send("Dhan Advanced Trading Backend Running");
+  res.send("Dhan Institutional Backend Running");
 
 });
 
 
 
-// ======================================================
+// =====================================================
 // LIVE NIFTY SPOT
-// ======================================================
+// =====================================================
 
 app.get("/spot", async (req, res) => {
 
@@ -44,9 +41,8 @@ app.get("/spot", async (req, res) => {
     const response = await axios.post(
       "https://api.dhan.co/v2/marketfeed/ltp",
       {
-        NSE: [
+        IDX_I: [
           {
-            tradingSymbol: "NIFTY",
             securityId: "13"
           }
         ]
@@ -63,7 +59,7 @@ app.get("/spot", async (req, res) => {
     res.json({
       status: "error",
       message: err.message,
-      data: err.response?.data || null,
+      data: err.response?.data || null
     });
 
   }
@@ -72,14 +68,15 @@ app.get("/spot", async (req, res) => {
 
 
 
-// ======================================================
+// =====================================================
 // OPTION CHAIN
-// ======================================================
+// =====================================================
 
 app.get("/option-chain", async (req, res) => {
 
   try {
 
+    // CURRENT WEEKLY EXPIRY
     const expiry =
       req.query.expiry || "2026-06-05";
 
@@ -102,7 +99,7 @@ app.get("/option-chain", async (req, res) => {
     res.json({
       status: "error",
       message: err.message,
-      data: err.response?.data || null,
+      data: err.response?.data || null
     });
 
   }
@@ -111,31 +108,31 @@ app.get("/option-chain", async (req, res) => {
 
 
 
-// ======================================================
+// =====================================================
 // GREEKS ENGINE
-// ======================================================
+// =====================================================
 
 app.get("/greeks", async (req, res) => {
 
   try {
 
-    const underlying = Number(req.query.underlying || 23400);
+    const underlying =
+      Number(req.query.underlying || 23400);
 
-    const strike = Number(req.query.strike || 23400);
+    const strike =
+      Number(req.query.strike || 23400);
 
-    const iv = Number(req.query.iv || 18) / 100;
+    const iv =
+      Number(req.query.iv || 18) / 100;
 
-    const timeToExpiry = Number(req.query.t || 7) / 365;
+    const timeToExpiry =
+      Number(req.query.t || 7) / 365;
 
-    const intrinsicCall = Math.max(
-      0,
-      underlying - strike
-    );
+    const intrinsicCall =
+      Math.max(0, underlying - strike);
 
-    const intrinsicPut = Math.max(
-      0,
-      strike - underlying
-    );
+    const intrinsicPut =
+      Math.max(0, strike - underlying);
 
     const extrinsic =
       underlying *
@@ -150,14 +147,10 @@ app.get("/greeks", async (req, res) => {
       intrinsicPut + extrinsic;
 
     const deltaCall =
-      underlying > strike
-        ? 0.65
-        : 0.45;
+      underlying > strike ? 0.65 : 0.45;
 
     const deltaPut =
-      underlying < strike
-        ? -0.65
-        : -0.45;
+      underlying < strike ? -0.65 : -0.45;
 
     res.json({
       underlying,
@@ -186,11 +179,11 @@ app.get("/greeks", async (req, res) => {
 
 
 
-// ======================================================
+// =====================================================
 // WEBSOCKET STATUS
-// ======================================================
+// =====================================================
 
-app.get("/ws-status", async (req, res) => {
+app.get("/ws-status", (req, res) => {
 
   res.json({
     websocket: "ready",
@@ -202,9 +195,9 @@ app.get("/ws-status", async (req, res) => {
 
 
 
-// ======================================================
-// SERVER START
-// ======================================================
+// =====================================================
+// SERVER
+// =====================================================
 
 app.listen(PORT, () => {
 
