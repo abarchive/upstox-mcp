@@ -74,9 +74,8 @@ app.get("/option-chain", async (req, res) => {
 
   try {
 
-    // CURRENT WEEKLY EXPIRY
     const expiry =
-      req.query.expiry || "2026-06-05";
+      req.query.expiry || "2026-06-26";
 
     const response = await axios.post(
       "https://api.dhan.co/v2/optionchain",
@@ -103,7 +102,6 @@ app.get("/option-chain", async (req, res) => {
   }
 
 });
-
 
 
 // =====================================================
