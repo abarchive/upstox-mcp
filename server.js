@@ -1,3 +1,4 @@
+```javascript
 require("dotenv").config();
 
 const express = require("express");
@@ -198,7 +199,7 @@ app.get("/option-chain", async (req, res) => {
   try {
 
     const expiry =
-      req.query.expiry || "2026-06-23";
+      req.query.expiry || "2026-06-09";
 
     const response = await axios.post(
       "https://api.dhan.co/v2/optionchain",
@@ -260,9 +261,13 @@ app.get("/market-data", async (req, res) => {
       );
 
       spot =
-        spotResponse.data?.data?.NSE_IDX?.["13"]?.last_price || 0;
+        Number(
+          spotResponse.data?.data?.NSE_IDX?.["13"]?.last_price || 0
+        );
 
     } catch (e) {
+
+      console.log("Spot fetch failed");
 
     }
 
@@ -315,6 +320,8 @@ app.get("/market-data", async (req, res) => {
         }
 
       } catch (e) {
+
+        console.log(`Expiry failed: ${expiry}`);
 
       }
 
@@ -369,10 +376,17 @@ app.get("/market-data", async (req, res) => {
     const atmStrike =
       roundToStrike(spot);
 
-    let atmData =
-      oc[atmStrike];
+    const atmKey =
+      Number(atmStrike)
+        .toFixed(6);
 
-    // fallback
+    let atmData =
+      oc[atmKey];
+
+    // ==================================================
+    // FALLBACK ATM
+    // ==================================================
+
     if (!atmData) {
 
       const nearest =
@@ -387,8 +401,12 @@ app.get("/market-data", async (req, res) => {
 
         });
 
+      const nearestKey =
+        Number(nearest)
+          .toFixed(6);
+
       atmData =
-        oc[nearest];
+        oc[nearestKey];
 
     }
 
@@ -407,8 +425,12 @@ app.get("/market-data", async (req, res) => {
 
     for (const strike of strikes) {
 
+      const strikeKey =
+        Number(strike)
+          .toFixed(6);
+
       const strikeData =
-        oc[strike];
+        oc[strikeKey];
 
       totalCallOI +=
         Number(
@@ -596,3 +618,4 @@ app.listen(PORT, () => {
   );
 
 });
+```
