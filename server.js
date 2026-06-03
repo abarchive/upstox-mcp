@@ -25,6 +25,16 @@ const headers = {
 
 
 // ======================================================
+// HELPERS
+// ======================================================
+
+function roundToStrike(price, step = 50) {
+  return Math.round(price / step) * step;
+}
+
+
+
+// ======================================================
 // HOME
 // ======================================================
 
@@ -37,7 +47,7 @@ app.get("/", (req, res) => {
 
 
 // ======================================================
-// WEBSOCKET STATUS
+// WS STATUS
 // ======================================================
 
 app.get("/ws-status", (req, res) => {
@@ -48,6 +58,63 @@ app.get("/ws-status", (req, res) => {
     realtime: true,
     serverTime: new Date().toISOString()
   });
+
+});
+
+
+
+// ======================================================
+// LIVE SPOT
+// ======================================================
+
+app.get("/spot", async (req, res) => {
+
+  try {
+
+    const response = await axios.post(
+      "https://api.dhan.co/v2/marketfeed/ltp",
+      {
+        NSE_IDX: ["13"]
+      },
+      {
+        headers
+      }
+    );
+
+    const data = response.data;
+
+    const nifty =
+      data?.data?.NSE_IDX?.["13"] || {};
+
+    res.json({
+
+      provider: "DhanHQ",
+
+      instrument: "NIFTY 50",
+
+      realtime: true,
+
+      spot:
+        nifty.last_price || 0,
+
+      raw: nifty
+
+    });
+
+  } catch (err) {
+
+    res.json({
+
+      status: "error",
+
+      message: err.message,
+
+      data:
+        err.response?.data || null
+
+    });
+
+  }
 
 });
 
@@ -123,8 +190,51 @@ app.get("/greeks", async (req, res) => {
 
 
 // ======================================================
-// MARKET DATA
-// SINGLE MASTER AI ENDPOINT
+// RAW OPTION CHAIN
+// ======================================================
+
+app.get("/option-chain", async (req, res) => {
+
+  try {
+
+    const expiry =
+      req.query.expiry || "2026-06-23";
+
+    const response = await axios.post(
+      "https://api.dhan.co/v2/optionchain",
+      {
+        UnderlyingScrip: 13,
+        UnderlyingSeg: "IDX_I",
+        Expiry: expiry
+      },
+      {
+        headers
+      }
+    );
+
+    res.json(response.data);
+
+  } catch (err) {
+
+    res.json({
+
+      status: "error",
+
+      message: err.message,
+
+      data:
+        err.response?.data || null
+
+    });
+
+  }
+
+});
+
+
+
+// ======================================================
+// MASTER AI ENDPOINT
 // ======================================================
 
 app.get("/market-data", async (req, res) => {
@@ -132,7 +242,32 @@ app.get("/market-data", async (req, res) => {
   try {
 
     // ==================================================
-    // STEP 1 - TRY MULTIPLE EXPIRIES
+    // STEP 1 - FETCH SPOT
+    // ==================================================
+
+    let spot = 0;
+
+    try {
+
+      const spotResponse = await axios.post(
+        "https://api.dhan.co/v2/marketfeed/ltp",
+        {
+          NSE_IDX: ["13"]
+        },
+        {
+          headers
+        }
+      );
+
+      spot =
+        spotResponse.data?.data?.NSE_IDX?.["13"]?.last_price || 0;
+
+    } catch (e) {
+
+    }
+
+    // ==================================================
+    // STEP 2 - TRY EXPIRIES
     // ==================================================
 
     const expiriesToTry = [
@@ -172,6 +307,7 @@ app.get("/market-data", async (req, res) => {
         ) {
 
           finalData = response.data.data;
+
           selectedExpiry = expiry;
 
           break;
@@ -191,20 +327,35 @@ app.get("/market-data", async (req, res) => {
     if (!finalData) {
 
       return res.json({
+
         status: "error",
+
         message: "No valid expiry found"
+
       });
 
     }
 
     // ==================================================
-    // EXTRACT DATA
+    // OPTION CHAIN
     // ==================================================
 
-    const oc = finalData.oc;
+    const oc = finalData.oc || {};
 
-    const spot =
-      Number(finalData.last_price || 0);
+    // ==================================================
+    // FALLBACK SPOT
+    // ==================================================
+
+    if (!spot || spot === 0) {
+
+      spot =
+        Number(finalData.last_price || 0);
+
+    }
+
+    // ==================================================
+    // STRIKES
+    // ==================================================
 
     const strikes =
       Object.keys(oc)
@@ -212,34 +363,34 @@ app.get("/market-data", async (req, res) => {
         .sort((a, b) => a - b);
 
     // ==================================================
-    // FIND ATM
+    // ATM
     // ==================================================
 
-    let atmStrike = strikes[0];
+    const atmStrike =
+      roundToStrike(spot);
 
-    let minDiff =
-      Math.abs(spot - atmStrike);
+    let atmData =
+      oc[atmStrike];
 
-    for (const strike of strikes) {
+    // fallback
+    if (!atmData) {
 
-      const diff =
-        Math.abs(spot - strike);
+      const nearest =
+        strikes.reduce((prev, curr) => {
 
-      if (diff < minDiff) {
+          return (
+            Math.abs(curr - spot) <
+            Math.abs(prev - spot)
+              ? curr
+              : prev
+          );
 
-        minDiff = diff;
-        atmStrike = strike;
+        });
 
-      }
+      atmData =
+        oc[nearest];
 
     }
-
-    // ==================================================
-    // ATM DATA
-    // ==================================================
-
-    const atmData =
-      oc[atmStrike];
 
     const ce =
       atmData?.ce || {};
@@ -260,10 +411,14 @@ app.get("/market-data", async (req, res) => {
         oc[strike];
 
       totalCallOI +=
-        strikeData?.ce?.oi || 0;
+        Number(
+          strikeData?.ce?.oi || 0
+        );
 
       totalPutOI +=
-        strikeData?.pe?.oi || 0;
+        Number(
+          strikeData?.pe?.oi || 0
+        );
 
     }
 
@@ -293,10 +448,14 @@ app.get("/market-data", async (req, res) => {
     // ==================================================
 
     const ceBid =
-      ce.top_bid_price || 0;
+      Number(
+        ce.top_bid_price || 0
+      );
 
     const ceAsk =
-      ce.top_ask_price || 0;
+      Number(
+        ce.top_ask_price || 0
+      );
 
     const spread =
       Math.abs(ceAsk - ceBid);
@@ -309,7 +468,7 @@ app.get("/market-data", async (req, res) => {
         : "low";
 
     // ==================================================
-    // FINAL RESPONSE
+    // FINAL OUTPUT
     // ==================================================
 
     res.json({
@@ -330,13 +489,22 @@ app.get("/market-data", async (req, res) => {
 
       marketBias,
 
-      pcr: Number(
-        pcr.toFixed(2)
-      ),
+      pcr:
+        Number(
+          pcr.toFixed(2)
+        ),
 
       liquidity,
 
       spread,
+
+      totals: {
+
+        totalCallOI,
+
+        totalPutOI
+
+      },
 
       atm: {
 
@@ -389,14 +557,6 @@ app.get("/market-data", async (req, res) => {
             pe.greeks || {}
 
         }
-
-      },
-
-      totals: {
-
-        totalCallOI,
-
-        totalPutOI
 
       },
 
