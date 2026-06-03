@@ -1,4 +1,3 @@
-```javascript
 require("dotenv").config();
 
 const express = require("express");
@@ -618,4 +617,3 @@ app.listen(PORT, () => {
   );
 
 });
-```
